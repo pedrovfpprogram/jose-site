@@ -1,85 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { SafeAreaView, View, Text, TouchableOpacity, StyleSheet, TextInput, Button, Alert } from 'react-native';
+// app-admin/App.tsx
+import React, { useState } from 'react';
+import { SafeAreaView, StyleSheet, View, Text, TouchableOpacity, StatusBar } from 'react-native';
 import LiveOrdersScreen from './src/screens/LiveOrders';
-import AddProductScreen from './src/screens/AddProduct';
-import { supabase } from './src/lib/supabase';
-import { Session } from '@supabase/supabase-js';
+import StockScreen from './src/screens/StockScreen';
 
 export default function App() {
-  const [session, setSession] = useState<Session | null>(null);
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
-  const [activeTab, setActiveTab] = useState<'orders' | 'products'>('orders');
+  const [currentTab, setCurrentTab] = useState<'orders' | 'stock'>('orders');
 
-  // 🔒 Verifica a sessão atual usando o AsyncStorage configurado no lib/supabase.ts
-  useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-    });
-
-    supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-    });
-  }, []);
-
-  // Função de Login Seguro do Admin
-  async function signInWithEmail() {
-    setLoading(true);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) Alert.alert('Acesso Negado', 'Credenciais inválidas.');
-    setLoading(false);
-  }
-
-  // 🚧 TELA DE LOGIN (Se não houver sessão ativa, trava o usuário aqui)
-  if (!session) {
-    return (
-      <SafeAreaView style={styles.loginContainer}>
-        <Text style={styles.loginTitle}>Acesso Restrito</Text>
-        <TextInput 
-          style={styles.input} 
-          placeholder="E-mail de Administrador" 
-          value={email} 
-          onChangeText={setEmail} 
-          autoCapitalize="none" 
-          keyboardType="email-address"
-        />
-        <TextInput 
-          style={styles.input} 
-          placeholder="Senha" 
-          value={password} 
-          onChangeText={setPassword} 
-          secureTextEntry 
-        />
-        <Button title={loading ? "Verificando..." : "Entrar no Sistema"} onPress={signInWithEmail} color="#16a34a" />
-      </SafeAreaView>
-    );
-  }
-
-  // ✅ PAINEL LIBERADO (Renderizado apenas se a sessão criptográfica for válida)
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerText}>Dashboard Dindim</Text>
-      </View>
-
+      <StatusBar barStyle="dark-content" backgroundColor="#ffffff" />
+      
+      {/* Conteúdo da Tela Ativa */}
       <View style={styles.content}>
-        {activeTab === 'orders' ? <LiveOrdersScreen /> : <AddProductScreen />}
+        {currentTab === 'orders' ? <LiveOrdersScreen /> : <StockScreen />}
       </View>
 
-      <View style={styles.navBar}>
+      {/* Barra de Navegação Inferior */}
+      <View style={styles.tabBar}>
         <TouchableOpacity 
-          style={[styles.navButton, activeTab === 'orders' && styles.activeNav]} 
-          onPress={() => setActiveTab('orders')}
+          style={[styles.tabItem, currentTab === 'orders' && styles.activeTab]} 
+          onPress={() => setCurrentTab('orders')}
+          activeOpacity={0.7}
         >
-          <Text style={[styles.navText, activeTab === 'orders' && { color: '#16a34a' }]}>Vendas ao Vivo</Text>
+          <Text style={[styles.tabText, currentTab === 'orders' && styles.activeTabText]}>
+            ⚡ Vendas ao Vivo
+          </Text>
         </TouchableOpacity>
-        
+
         <TouchableOpacity 
-          style={[styles.navButton, activeTab === 'products' && styles.activeNav]} 
-          onPress={() => setActiveTab('products')}
+          style={[styles.tabItem, currentTab === 'stock' && styles.activeTab]} 
+          onPress={() => setCurrentTab('stock')}
+          activeOpacity={0.7}
         >
-          <Text style={[styles.navText, activeTab === 'products' && { color: '#16a34a' }]}>Lançar Dindim</Text>
+          <Text style={[styles.tabText, currentTab === 'stock' && styles.activeTabText]}>
+            📦 Estoque
+          </Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
@@ -87,15 +43,47 @@ export default function App() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#f5f5f5' },
-  loginContainer: { flex: 1, justifyContent: 'center', padding: 20, backgroundColor: '#f5f5f5' },
-  loginTitle: { fontSize: 24, fontWeight: 'bold', marginBottom: 30, textAlign: 'center', color: '#333' },
-  input: { borderWidth: 1, borderColor: '#ccc', padding: 12, marginBottom: 15, borderRadius: 8, backgroundColor: 'white' },
-  header: { padding: 20, backgroundColor: '#16a34a', alignItems: 'center' },
-  headerText: { color: 'white', fontSize: 20, fontWeight: 'bold' },
-  content: { flex: 1 },
-  navBar: { flexDirection: 'row', backgroundColor: 'white', borderTopWidth: 1, borderColor: '#e5e5e5' },
-  navButton: { flex: 1, padding: 15, alignItems: 'center' },
-  activeNav: { borderTopWidth: 3, borderColor: '#16a34a' },
-  navText: { fontWeight: 'bold', color: '#666' }
+  container: { 
+    flex: 1, 
+    backgroundColor: '#ffffff' 
+  },
+  content: { 
+    flex: 1 
+  },
+  tabBar: { 
+    flexDirection: 'row', 
+    backgroundColor: '#ffffff', 
+    borderTopWidth: 1, 
+    borderColor: '#e2e8f0',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    justifyContent: 'space-around',
+    elevation: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+  },
+  tabItem: { 
+    paddingVertical: 12, 
+    paddingHorizontal: 24, 
+    borderRadius: 16,
+    alignItems: 'center',
+    flex: 1,
+    marginHorizontal: 6,
+    backgroundColor: '#f8fafc'
+  },
+  activeTab: { 
+    backgroundColor: '#dcfce3',
+    borderColor: '#bbf7d0',
+    borderWidth: 1
+  },
+  tabText: { 
+    fontSize: 13, 
+    fontWeight: 'bold', 
+    color: '#64748b' 
+  },
+  activeTabText: { 
+    color: '#15803d' 
+  }
 });

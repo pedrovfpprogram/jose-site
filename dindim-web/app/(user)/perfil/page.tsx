@@ -1,8 +1,8 @@
-// dindim-web/app/(user)/perfil/page.tsx
 'use client'
 
 import { useEffect, useState } from 'react'
 import { getUserData, updateProfile, signOut } from '../../actions/profile'
+import { getUserOrders } from '../../actions/getOrders'
 
 export default function PerfilPage() {
   const [loading, setLoading] = useState(true)
@@ -12,19 +12,23 @@ export default function PerfilPage() {
   const [email, setEmail] = useState('')
   const [nome, setNome] = useState('')
   const [telefone, setTelefone] = useState('')
+  const [pontos, setPontos] = useState(0)
+  const [orders, setOrders] = useState<any[]>([])
 
   useEffect(() => {
     async function loadData() {
       const data = await getUserData()
-      if (!data.user) {
-        window.location.href = '/login' // Redireciona se não estiver logado
-        return
-      }
+      if (!data.user) { window.location.href = '/login'; return; }
+      
       setEmail(data.user.email || '')
       if (data.profile) {
         setNome(data.profile.nome || '')
         setTelefone(data.profile.telefone || '')
+        setPontos(data.profile.pontos || 0)
       }
+
+      const hist = await getUserOrders()
+      setOrders(hist)
       setLoading(false)
     }
     loadData()
@@ -33,113 +37,107 @@ export default function PerfilPage() {
   const handleSave = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     setSaving(true)
-    setStatus({ type: 'info', message: 'Salvando...' })
-
     const formData = new FormData(e.currentTarget)
     const result = await updateProfile(formData)
-
-    if (result.error) {
-      setStatus({ type: 'error', message: `❌ ${result.error}` })
-    } else {
-      setStatus({ type: 'success', message: '✅ Perfil atualizado com sucesso!' })
-    }
+    if (result.error) setStatus({ type: 'error', message: result.error })
+    else setStatus({ type: 'success', message: '✅ Atualizado com sucesso!' })
     setSaving(false)
   }
 
-  const handleLogout = async () => {
-    await signOut()
-    window.location.href = '/' // Volta pra vitrine
-  }
+  if (loading) return <div className="min-h-screen flex items-center justify-center font-bold text-green-600">Carregando...</div>
 
-  if (loading) {
-    return <div className="min-h-screen flex justify-center items-center bg-slate-50 text-green-600 font-bold text-xl">Carregando...</div>
-  }
+  const freeDindins = Math.floor(pontos / 12)
+  const pointsRemainder = pontos % 12
 
   return (
     <div className="min-h-screen bg-slate-50 py-10 px-4 font-sans">
-      <div className="max-w-md mx-auto">
+      <div className="max-w-2xl mx-auto space-y-6">
         
-        {/* Cabeçalho de Navegação */}
-        <div className="flex justify-between items-center mb-8">
-          <button onClick={() => window.location.href = '/'} className="text-slate-500 hover:text-green-600 font-bold transition">
-            ← Voltar à Vitrine
-          </button>
+        <div className="flex justify-between items-center">
+          <button onClick={() => window.location.href = '/'} className="text-slate-600 font-bold">← Voltar</button>
           <h1 className="text-2xl font-extrabold text-slate-800">Minha Conta</h1>
         </div>
 
-        {/* Card do Perfil */}
-        <div className="bg-white rounded-3xl shadow-sm border border-slate-200 overflow-hidden">
-          
-          {/* Avatar e Boas vindas */}
-          <div className="bg-gradient-to-r from-green-600 to-emerald-500 p-8 text-center">
-            <div className="w-20 h-20 bg-white rounded-full flex items-center justify-center text-3xl mx-auto shadow-md mb-3">
-              {nome ? nome.charAt(0).toUpperCase() : '👤'}
+        {/* CLUBE FIDELIDADE */}
+        <div className="bg-gradient-to-r from-amber-500 to-orange-400 rounded-3xl p-6 text-white shadow-md space-y-4">
+          <div className="flex justify-between items-center">
+            <div>
+              <h2 className="text-xl font-black">Clube Dindim Fidelidade</h2>
+              <p className="text-amber-100 font-medium text-sm">Cada 12 pontos = 1 Dindim Grátis!</p>
             </div>
-            <h2 className="text-xl font-bold text-white">{nome || 'Novo Cliente'}</h2>
-            <p className="text-green-100 text-sm">Membro Dindim Fidelidade</p>
+            <div className="bg-white/20 px-4 py-2 rounded-xl text-center">
+              <span className="block text-3xl font-black">{pontos}</span>
+              <span className="block text-xs font-bold uppercase">Pontos</span>
+            </div>
           </div>
 
-          <form onSubmit={handleSave} className="p-6 space-y-5">
-            {status.message && (
-              <div className={`p-3 rounded-lg text-sm font-bold text-center ${status.type === 'error' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-                {status.message}
-              </div>
-            )}
-
+          <div className="bg-black/10 p-4 rounded-2xl flex justify-between items-center">
             <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">E-mail (Login)</label>
-              <input 
-                type="email" 
-                value={email} 
-                disabled 
-                className="w-full p-3 border border-slate-200 rounded-xl bg-slate-100 text-slate-500 cursor-not-allowed"
-                title="Para mudar o e-mail é necessário verificação de segurança."
-              />
+              <p className="text-xs uppercase font-extrabold text-amber-100">Dindins Grátis Disponíveis</p>
+              <p className="text-2xl font-black">{freeDindins} 🎁</p>
             </div>
-
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">Nome Completo</label>
-              <input 
-                type="text" 
-                name="nome"
-                value={nome}
-                onChange={(e) => setNome(e.target.value)}
-                placeholder="Como quer ser chamado?"
-                className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:outline-none"
-              />
+            <div className="text-right">
+              <p className="text-xs text-amber-100 font-bold">Faltam {12 - pointsRemainder} pts</p>
+              <p className="text-xs font-medium">para o próximo bônus</p>
             </div>
-
-            <div>
-              <label className="block text-sm font-bold text-slate-700 mb-1">WhatsApp / Celular</label>
-              <input 
-                type="tel" 
-                name="telefone"
-                value={telefone}
-                onChange={(e) => setTelefone(e.target.value)}
-                placeholder="(00) 00000-0000"
-                className="w-full p-3 border border-slate-300 rounded-xl focus:ring-2 focus:ring-green-500 focus:outline-none"
-              />
-            </div>
-
-            <div className="pt-4 space-y-3">
-              <button 
-                type="submit" 
-                disabled={saving}
-                className="w-full bg-green-600 hover:bg-green-500 text-white font-bold py-3 rounded-xl shadow-md transition disabled:bg-slate-400"
-              >
-                {saving ? 'Salvando...' : 'Salvar Alterações'}
-              </button>
-
-              <button 
-                type="button" 
-                onClick={handleLogout}
-                className="w-full bg-white border-2 border-red-100 hover:bg-red-50 text-red-600 font-bold py-3 rounded-xl transition"
-              >
-                Sair da Conta
-              </button>
-            </div>
-          </form>
+          </div>
         </div>
+
+        {/* DADOS DO USUÁRIO */}
+        <form onSubmit={handleSave} className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200 space-y-4">
+          <h2 className="text-lg font-bold text-slate-800 border-b pb-2">Meus Dados</h2>
+          {status.message && <div className="text-green-600 font-bold">{status.message}</div>}
+          
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">Nome Completo</label>
+            <input 
+              type="text" name="nome" value={nome} onChange={(e) => setNome(e.target.value)}
+              placeholder="Digite seu nome"
+              className="w-full p-3 border border-slate-300 rounded-xl bg-white text-slate-900 font-bold placeholder-slate-400 focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-bold text-slate-700 mb-1">WhatsApp / Celular</label>
+            <input 
+              type="tel" name="telefone" value={telefone} onChange={(e) => setTelefone(e.target.value)}
+              placeholder="(86) 99999-9999"
+              className="w-full p-3 border border-slate-300 rounded-xl bg-white text-slate-900 font-bold placeholder-slate-400 focus:ring-2 focus:ring-green-500"
+            />
+          </div>
+          <button type="submit" className="w-full bg-slate-900 text-white font-bold py-3 rounded-xl hover:bg-slate-800">
+            {saving ? 'Salvando...' : 'Salvar Dados'}
+          </button>
+        </form>
+
+        {/* HISTÓRICO DE PEDIDOS */}
+        <div className="bg-white p-6 rounded-3xl shadow-sm border border-slate-200">
+          <h2 className="text-lg font-bold text-slate-800 mb-4 border-b pb-2">Histórico de Pedidos</h2>
+          {orders.length === 0 ? (
+            <p className="text-slate-500">Você ainda não fez nenhum pedido.</p>
+          ) : (
+            <div className="space-y-3">
+              {orders.map(o => (
+                <div key={o.id} className="flex justify-between items-center p-3 bg-slate-50 rounded-lg border border-slate-100">
+                  <div>
+                    <p className="font-bold text-slate-800">{o.quantidade}x {o.produto_nome || 'Dindim'}</p>
+                    <p className="text-xs text-slate-500">{new Date(o.criado_em).toLocaleDateString()}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-black text-green-600">R$ {o.total.toFixed(2)}</p>
+                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded-full ${o.status === 'entregue' ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                      {o.status}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <button type="button" onClick={async () => { await signOut(); window.location.href = '/' }} className="w-full text-red-500 font-bold py-2">
+          Sair da Conta
+        </button>
+
       </div>
     </div>
   )

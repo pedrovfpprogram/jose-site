@@ -2,30 +2,40 @@
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
-import { z } from 'zod'
 
-const loginSchema = z.object({
-  email: z.string().email('Formato de e-mail inválido'),
-  password: z.string().min(8, 'A senha deve ter no mínimo 8 caracteres')
-})
-
-export async function signIn(formData: FormData) {
-  // ⚠️ Adicionado o await aqui:
+export async function loginAction(formData: FormData) {
   const supabase = await createClient()
+  const email = formData.get('email')?.toString()
+  const password = formData.get('password')?.toString()
+
+  if (!email || !password) return { error: 'Preencha todos os campos.' }
+
+  const { error } = await supabase.auth.signInWithPassword({ email, password })
+
+  if (error) {
+    return { error: 'E-mail ou senha incorretos.' }
+  }
   
-  const parsed = loginSchema.safeParse({
-    email: formData.get('email'),
-    password: formData.get('password'),
-  })
+  return { success: true }
+}
 
-  if (!parsed.success) return { error: 'Dados inválidos. Verifique os campos.' }
+export async function signupAction(formData: FormData) {
+  const supabase = await createClient()
+  const email = formData.get('email')?.toString()
+  const password = formData.get('password')?.toString()
 
-  const { error } = await supabase.auth.signInWithPassword({
-    email: parsed.data.email,
-    password: parsed.data.password,
-  })
+  if (!email || !password) return { error: 'Preencha todos os campos.' }
+  if (password.length < 6) return { error: 'A senha deve ter no mínimo 6 caracteres.' }
 
-  if (error) return { error: 'Credenciais inválidas.' }
+  const { error } = await supabase.auth.signUp({ email, password })
+
+  if (error) {
+    // Tratamento amigável para erro comum
+    if (error.message.includes('already registered')) {
+      return { error: 'Este e-mail já está cadastrado. Faça login.' }
+    }
+    return { error: error.message }
+  }
 
   return { success: true }
 }

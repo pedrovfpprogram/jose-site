@@ -1,99 +1,121 @@
-// app-admin/src/screens/LiveOrders.tsx
 import React, { useEffect, useState } from 'react';
 import { View, Text, FlatList, Alert, StyleSheet, TouchableOpacity } from 'react-native';
 import { supabase } from '../lib/supabase';
-import { RealtimeChannel } from '@supabase/supabase-js';
 
 interface Order {
   id: string;
   cliente_id: string;
   status: string;
-  endereco_entrega: string;
   total: number;
+  quantidade: number;
+  produto_nome: string;
   criado_em: string;
+  profiles: { nome: string; telefone: string } | null;
 }
 
 export default function LiveOrdersScreen() {
   const [orders, setOrders] = useState<Order[]>([]);
   
-  useEffect(() => {
-    const fetchInitialOrders = async () => {
-      const { data, error } = await supabase
-        .from('orders')
-        .select('*')
-        .order('criado_em', { ascending: false })
-        .limit(50); // Limita para não pesar o app
+  const fetchOrders = async () => {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*, profiles(nome, telefone)')
+      .order('criado_em', { ascending: false })
+      .limit(50);
 
-      if (error) {
-         Alert.alert('Erro', 'Não foi possível carregar os pedidos.');
-         return;
-      }
-      if (data) setOrders(data);
-    };
-
-    fetchInitialOrders();
-
-    const channel: RealtimeChannel = supabase
-      .channel('schema-db-changes')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'orders' },
-        (payload) => {
-          const newOrder = payload.new as Order;
-          setOrders((currentOrders) => [newOrder, ...currentOrders]);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, []);
-
-  // Formata a data para exibir a hora do pedido (Ex: 14:30)
-  const formatTime = (dateString: string) => {
-    const date = new Date(dateString);
-    return date.toLocaleTimeString([], { hour: '2', minute: '2' });
+    if (error) {
+      console.error('Erro ao buscar pedidos:', error);
+    }
+    if (data) setOrders(data as Order[]);
   };
 
-  // Define a cor da "etiqueta" baseada no status do pedido
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'pendente': return { bg: '#fef3c7', text: '#d97706' }; // Amarelo
-      case 'preparando': return { bg: '#dbeafe', text: '#2563eb' }; // Azul
-      case 'saiu_para_entrega': return { bg: '#e0e7ff', text: '#4f46e5' }; // Roxo
-      case 'entregue': return { bg: '#dcfce3', text: '#16a34a' }; // Verde
-      default: return { bg: '#f3f4f6', text: '#4b5563' }; // Cinza
+  useEffect(() => {
+    fetchOrders();
+
+    const channel = supabase
+      .channel('realtime-orders')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, () => {
+        fetchOrders();
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, []);
+
+  const formatTime = (dateString: string) => {
+    const date = new Date(dateString);
+    return `${date.getHours().toString().padStart(2, '0')}:${date.getMinutes().toString().padStart(2, '0')}`;
+  };
+
+  // 🏆 Finaliza o pedido e soma exatamente 1 ponto por dindim comprado
+  const handleCompleteOrder = async (order: Order) => {
+    if (order.status === 'entregue') return;
+
+    // 1. Atualiza o status do pedido para 'entregue'
+    const { error: orderError } = await supabase
+      .from('orders')
+      .update({ status: 'entregue' })
+      .eq('id', order.id);
+
+    if (orderError) {
+      Alert.alert('Erro', 'Não foi possível atualizar o status do pedido.');
+      return;
     }
+
+    // 2. Passa a quantidade do pedido como o total de pontos (1 ponto por unidade)
+    const pontosGanhos = order.quantidade || 1;
+
+    const { error: rpcError } = await supabase.rpc('add_points_to_user', {
+      target_user_id: order.cliente_id,
+      points_to_add: pontosGanhos
+    });
+
+    if (rpcError) {
+      Alert.alert('Aviso', 'Pedido entregue, mas houve falha ao adicionar os pontos: ' + rpcError.message);
+    } else {
+      Alert.alert('Sucesso!', `Pedido finalizado! O cliente ganhou +${pontosGanhos} pontos.`);
+    }
+
+    fetchOrders();
   };
 
   const renderItem = ({ item }: { item: Order }) => {
-    const statusStyle = getStatusColor(item.status);
-    
+    const isDone = item.status === 'entregue';
+    const clienteNome = item.profiles?.nome || 'Cliente sem nome';
+    const clienteTel = item.profiles?.telefone || 'Sem telefone cadastrado';
+
     return (
       <View style={styles.card}>
-        {/* Cabeçalho do Card */}
         <View style={styles.cardHeader}>
           <Text style={styles.orderId}>#{item.id.slice(0, 6).toUpperCase()}</Text>
           <Text style={styles.timeText}>🕒 {formatTime(item.criado_em)}</Text>
         </View>
 
-        {/* Corpo do Card (Endereço) */}
-        <View style={styles.addressContainer}>
-          <Text style={styles.addressLabel}>ENTREGAR EM:</Text>
-          <Text style={styles.addressText} numberOfLines={2}>{item.endereco_entrega}</Text>
+        <View style={styles.customerContainer}>
+          <Text style={styles.customerName}>👤 {clienteNome}</Text>
+          <Text style={styles.customerPhone}>📞 {clienteTel}</Text>
         </View>
 
-        {/* Rodapé do Card (Status) */}
+        <View style={styles.productContainer}>
+          <Text style={styles.productText}>
+            {item.quantidade}x {item.produto_nome || 'Dindim'}
+          </Text>
+          <Text style={styles.totalText}>R$ {item.total?.toFixed(2)}</Text>
+        </View>
+
         <View style={styles.cardFooter}>
-          <View style={[styles.badge, { backgroundColor: statusStyle.bg }]}>
-            <Text style={[styles.badgeText, { color: statusStyle.text }]}>
+          <View style={[styles.badge, { backgroundColor: isDone ? '#dcfce3' : '#fef3c7' }]}>
+            <Text style={[styles.badgeText, { color: isDone ? '#16a34a' : '#d97706' }]}>
               {item.status.toUpperCase()}
             </Text>
           </View>
           
-          <TouchableOpacity style={styles.actionButton}>
-             <Text style={styles.actionButtonText}>Avançar Status</Text>
+          <TouchableOpacity 
+            style={[styles.actionButton, isDone && { backgroundColor: '#cbd5e1' }]}
+            onPress={() => handleCompleteOrder(item)}
+            disabled={isDone}
+          >
+             <Text style={styles.actionButtonText}>{isDone ? 'Concluído' : '✅ Finalizar e Dar Pontos'}</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -102,64 +124,27 @@ export default function LiveOrdersScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={styles.summaryBar}>
-        <Text style={styles.summaryText}>🟢 {orders.length} Pedidos localizados</Text>
-      </View>
-      
-      <FlatList
-        data={orders}
-        keyExtractor={(item) => item.id}
-        renderItem={renderItem}
-        contentContainerStyle={styles.listContainer}
-        ListEmptyComponent={
-          <View style={styles.emptyState}>
-            <Text style={styles.emptyStateEmoji}>😴</Text>
-            <Text style={styles.emptyStateText}>Nenhum pedido recebido ainda.</Text>
-          </View>
-        }
-      />
+      <FlatList data={orders} keyExtractor={(item) => item.id} renderItem={renderItem} contentContainerStyle={styles.listContainer} />
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f1f5f9' },
-  summaryBar: { padding: 12, backgroundColor: 'white', borderBottomWidth: 1, borderColor: '#e2e8f0', alignItems: 'center' },
-  summaryText: { fontWeight: '600', color: '#475569' },
   listContainer: { padding: 16, gap: 16 },
-  
-  // Estilo do Card Elevado
-  card: {
-    backgroundColor: 'white',
-    borderRadius: 16,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: '#e2e8f0',
-    // Sombras para iOS
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    // Sombras para Android
-    elevation: 2,
-    marginBottom: 12,
-  },
-  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 },
+  card: { backgroundColor: 'white', borderRadius: 16, padding: 16, elevation: 2, marginBottom: 12 },
+  cardHeader: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 12 },
   orderId: { fontSize: 16, fontWeight: 'bold', color: '#0f172a' },
-  timeText: { fontSize: 14, color: '#64748b', fontWeight: '500' },
-  
-  addressContainer: { backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 16 },
-  addressLabel: { fontSize: 10, fontWeight: 'bold', color: '#94a3b8', marginBottom: 4 },
-  addressText: { fontSize: 15, color: '#334155', fontWeight: '500' },
-  
+  timeText: { fontSize: 14, color: '#64748b', fontWeight: 'bold' },
+  customerContainer: { backgroundColor: '#f8fafc', padding: 12, borderRadius: 8, marginBottom: 8 },
+  customerName: { fontSize: 16, color: '#0f172a', fontWeight: 'bold', marginBottom: 4 },
+  customerPhone: { fontSize: 14, color: '#2563eb', fontWeight: 'bold' },
+  productContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 16, paddingHorizontal: 4 },
+  productText: { fontSize: 16, fontWeight: 'bold', color: '#0f172a' },
+  totalText: { fontSize: 16, fontWeight: '900', color: '#16a34a' },
   cardFooter: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { fontSize: 12, fontWeight: 'bold' },
-  
-  actionButton: { backgroundColor: '#16a34a', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 8 },
+  actionButton: { backgroundColor: '#16a34a', paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8 },
   actionButtonText: { color: 'white', fontSize: 12, fontWeight: 'bold' },
-
-  emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60 },
-  emptyStateEmoji: { fontSize: 48, marginBottom: 10 },
-  emptyStateText: { fontSize: 16, color: '#64748b' }
 });

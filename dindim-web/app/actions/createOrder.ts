@@ -1,46 +1,98 @@
-// dindim-web/app/actions/createOrder.ts
 'use server'
 
 import { createClient } from '@/utils/supabase/server'
-import { z } from 'zod'
+import { revalidatePath } from 'next/cache'
 
-const orderSchema = z.object({
-  items: z.array(z.object({
-    productId: z.string().uuid(),
-    quantity: z.number().int().min(1).max(50)
-  })).min(1),
-  endereco_entrega: z.string().min(10).max(255).trim()
-})
+interface CartItem {
+  productId: string;
+  name: string;
+  price: number;
+  quantity: number;
+}
 
-export async function createOrder(formData: FormData, rawItems: any) {
-  // ⚠️ ADICIONE O AWAIT AQUI
+export async function createCartOrder(items: CartItem[], loyaltyCreditsToUse: number) {
   const supabase = await createClient()
-  
-  // BYPASS TEMPORÁRIO PARA TESTE (mantido como no passo anterior)
-  // const { data: { session } } = await supabase.auth.getSession()
-  // if (!session) throw new Error('Não autorizado')
+  const { data: { user }, error: userError } = await supabase.auth.getUser()
 
-  const parsedData = orderSchema.safeParse({
-    items: rawItems,
-    endereco_entrega: formData.get('endereco_entrega')
+  if (userError || !user) {
+    return { error: 'Sessão inválida ou expirada. Faça login novamente.' }
+  }
+
+  if (!items || items.length === 0) {
+    return { error: 'O carrinho está vazio.' }
+  }
+
+  // Se for usar créditos de fidelidade, valida e desconta no banco
+  if (loyaltyCreditsToUse > 0) {
+    const { data: success, error: rpcError } = await supabase.rpc('use_loyalty_credits', {
+      target_user_id: user.id,
+      credits_to_use: loyaltyCreditsToUse
+    })
+
+    if (rpcError || !success) {
+      return { error: 'Pontos insuficientes para a quantidade de cupons selecionados.' }
+    }
+  }
+
+  // Expande todos os itens unitariamente para ordenar e aplicar o desconto nos mais baratos
+  const unitItems: { name: string; price: number }[] = []
+  for (const item of items) {
+    for (let i = 0; i < item.quantity; i++) {
+      unitItems.push({ name: item.name, price: item.price })
+    }
+  }
+
+  // Ordena do mais barato para o mais caro
+  unitItems.sort((a, b) => a.price - b.price)
+
+  let total = 0
+  const summaryMap: Record<string, { paidQty: number; freeQty: number; price: number }> = {}
+
+  unitItems.forEach((unit, index) => {
+    const isFree = index < loyaltyCreditsToUse
+    const effectivePrice = isFree ? 0 : unit.price
+
+    total += effectivePrice
+
+    if (!summaryMap[unit.name]) {
+      summaryMap[unit.name] = { paidQty: 0, freeQty: 0, price: unit.price }
+    }
+    if (isFree) {
+      summaryMap[unit.name].freeQty += 1
+    } else {
+      summaryMap[unit.name].paidQty += 1
+    }
   })
 
-  if (!parsedData.success) return { error: 'Dados inválidos detectados. Requisição abortada.' }
+  const descricoes: string[] = []
+  for (const [name, data] of Object.entries(summaryMap)) {
+    let parts = []
+    if (data.paidQty > 0) parts.push(`${data.paidQty}x ${name}`)
+    if (data.freeQty > 0) parts.push(`${data.freeQty}x ${name} (GRÁTIS - Fidelidade)`)
+    descricoes.push(parts.join(' + '))
+  }
 
-  const { data: order, error } = await supabase
+  const produtoNomeResumo = descricoes.join(', ')
+  const totalQuantidade = unitItems.length
+
+  const { data: order, error: orderError } = await supabase
     .from('orders')
     .insert({
-      cliente_id: '0cbeac94-91cb-4489-a468-0a74e16206f9', 
-      endereco_entrega: parsedData.data.endereco_entrega,
-      status: 'pendente'
+      cliente_id: user.id,
+      status: 'pendente',
+      total: total,
+      quantidade: totalQuantidade,
+      produto_nome: produtoNomeResumo,
+      endereco_entrega: 'Retirada/Local'
     })
     .select()
     .single()
 
-  if (error) {
-    console.error(error)
-    return { error: 'Falha ao registrar o pedido. (Veja o console)' }
+  if (orderError) {
+    console.error('Erro ao inserir pedido:', orderError)
+    return { error: 'Erro ao registrar o pedido no banco.' }
   }
 
+  revalidatePath('/')
   return { success: true, orderId: order.id }
 }
