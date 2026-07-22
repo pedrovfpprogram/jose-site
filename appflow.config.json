@@ -1,0 +1,8 @@
+{
+  "apps": [
+    {
+      "name": "app-admin",
+      "root": "app-admin"
+    }
+  ]
+}
