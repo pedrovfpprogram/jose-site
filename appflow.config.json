@@ -1,6 +1,7 @@
 {
   "apps": [
     {
+      "appId": "dfe7ab85",
       "name": "app-admin",
       "root": "app-admin"
     }
